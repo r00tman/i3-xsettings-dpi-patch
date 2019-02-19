@@ -1,0 +1,111 @@
+diff --git a/Makefile.am b/Makefile.am
+index ee71b7f2..16c0c1eb 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -273,7 +273,8 @@ i3_LDADD = \
+ 	$(LIBPCRE_LIBS) \
+ 	$(PANGOCAIRO_LIBS) \
+ 	$(PTHREAD_LIBS) \
+-	$(CODE_COVERAGE_LDFLAGS)
++	$(CODE_COVERAGE_LDFLAGS) \
++	-lX11 -lXsettings-client
+ 
+ libi3_CFLAGS = \
+ 	$(AM_CFLAGS) \
+@@ -327,6 +328,7 @@ i3_dump_log_i3_dump_log_CFLAGS = \
+ 
+ i3_dump_log_i3_dump_log_LDADD = \
+ 	$(PTHREAD_LIBS) \
++	-lX11 -lXsettings-client \
+ 	$(libi3_LIBS)
+ 
+ i3_dump_log_i3_dump_log_SOURCES = \
+@@ -338,6 +340,7 @@ i3_input_i3_input_CFLAGS = \
+ 
+ i3_input_i3_input_LDADD = \
+ 	$(libi3_LIBS) \
++	-lX11 -lXsettings-client \
+ 	$(XCB_UTIL_KEYSYMS_LIBS)
+ 
+ i3_input_i3_input_SOURCES = \
+@@ -351,6 +354,7 @@ i3_msg_i3_msg_CFLAGS = \
+ 	$(libi3_CFLAGS)
+ 
+ i3_msg_i3_msg_LDADD = \
++	-lX11 -lXsettings-client \
+ 	$(libi3_LIBS)
+ 
+ i3_msg_i3_msg_SOURCES = \
+@@ -362,6 +366,7 @@ i3_nagbar_i3_nagbar_CFLAGS = \
+ 	$(libi3_CFLAGS)
+ 
+ i3_nagbar_i3_nagbar_LDADD = \
++	-lX11 -lXsettings-client \
+ 	$(libi3_LIBS) \
+ 	$(LIBSN_LIBS) \
+ 	$(XCB_UTIL_CURSOR_LIBS)
+@@ -384,6 +389,7 @@ i3bar_i3bar_CFLAGS = \
+ 	$(YAJL_CFLAGS)
+ 
+ i3bar_i3bar_LDADD = \
++	-lX11 -lXsettings-client \
+ 	$(libi3_LIBS) \
+ 	$(XCB_LIBS) \
+ 	$(XCB_UTIL_CURSOR_LIBS) \
+@@ -421,6 +427,7 @@ i3_config_wizard_i3_config_wizard_CFLAGS = \
+ 	$(XKBCOMMON_CFLAGS)
+ 
+ i3_config_wizard_i3_config_wizard_LDADD = \
++	-lX11 -lXsettings-client \
+ 	$(libi3_LIBS) \
+ 	$(LIBSN_LIBS) \
+ 	$(XCB_UTIL_KEYSYMS_LIBS) \
+diff --git a/libi3/dpi.c b/libi3/dpi.c
+index d15e35be..a9820717 100644
+--- a/libi3/dpi.c
++++ b/libi3/dpi.c
+@@ -10,6 +10,8 @@
+ #include <math.h>
+ #include <stdlib.h>
+ #include <xcb/xcb_xrm.h>
++#include <xsettings-client.h>
++#include <X11/Xlib.h>
+ 
+ static long dpi;
+ 
+@@ -23,6 +25,23 @@ static long init_dpi_fallback(void) {
+  * guessing the correct value otherwise.
+  */
+ void init_dpi(void) {
++    Display *dis = XOpenDisplay((char *)0);
++    int screen = DefaultScreen(dis);
++
++    XSettingsClient *cli = xsettings_client_new(dis, screen, NULL, NULL, NULL);
++    if (cli) {
++        XSettingsSetting *setting;
++        xsettings_client_get_setting(cli, "Xft/DPI", &setting);
++        double in_dpi = setting->data.v_int/1024.0;
++        dpi = lround(in_dpi);
++
++        xsettings_client_destroy(cli);
++        XCloseDisplay(dis);
++        DLOG("Found Xft/DPI = %ld.\n", dpi);
++        return;
++    }
++    XCloseDisplay(dis);
++
+     xcb_xrm_database_t *database = NULL;
+     char *resource = NULL;
+ 
+diff --git a/src/commands.c b/src/commands.c
+index 96ec6816..118b6d63 100644
+--- a/src/commands.c
++++ b/src/commands.c
+@@ -1576,6 +1576,7 @@ void cmd_reload(I3_CMD) {
+     LOG("reloading\n");
+     kill_nagbar(&config_error_nagbar_pid, false);
+     kill_nagbar(&command_error_nagbar_pid, false);
++    init_dpi();
+     load_configuration(conn, NULL, true);
+     x_set_i3_atoms();
+     /* Send an IPC event just in case the ws names have changed */
